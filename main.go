@@ -105,7 +105,7 @@ func NewCmdRun(ctx context.Context) *cobra.Command {
 }
 
 func run(ctx context.Context, addr, metricsAddr, apiServerAddress string, debug bool) error {
-	target, err := url.Parse("https://google.com")
+	target, err := url.Parse("https://appscode.com")
 	if err != nil {
 		return err
 	}
