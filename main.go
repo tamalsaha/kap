@@ -21,7 +21,10 @@ import (
 	"gomodules.xyz/logs"
 	"gomodules.xyz/signals"
 	v "gomodules.xyz/x/version"
+	ktr "k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var (
@@ -105,6 +108,16 @@ func NewCmdRun(ctx context.Context) *cobra.Command {
 }
 
 func run(ctx context.Context, addr, metricsAddr, apiServerAddress string, debug bool) error {
+	cfg := ctrl.GetConfigOrDie()
+	tf, err := cfg.TransportConfig()
+	if err != nil {
+		return err
+	}
+	rtt, err := ktr.New(tf)
+	if err != nil {
+		return err
+	}
+
 	target, err := url.Parse("https://appscode.com")
 	if err != nil {
 		return err
@@ -112,7 +125,8 @@ func run(ctx context.Context, addr, metricsAddr, apiServerAddress string, debug 
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = cloudflareTransport{
-		debug: debug,
+		delegate: rtt,
+		debug:    debug,
 	}
 
 	r := prometheus.NewRegistry()
@@ -161,10 +175,14 @@ func run(ctx context.Context, addr, metricsAddr, apiServerAddress string, debug 
 }
 
 type cloudflareTransport struct {
-	debug bool
+	delegate http.RoundTripper
+	debug    bool
 }
 
 func (rt cloudflareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if rt.delegate == nil {
+		rt.delegate = http.DefaultTransport
+	}
 	if rt.debug {
 		if data, err := httputil.DumpRequestOut(req, true); err == nil {
 			fmt.Println("REQUEST: >>>>>>>>>>>>>>>>>>>>>>>")
@@ -175,7 +193,7 @@ func (rt cloudflareTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	req.Host = ""
 	// req.Header.Set("Authorization", "Bearer "+rt.apiToken)
 
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := rt.delegate.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
